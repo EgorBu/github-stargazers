@@ -1,10 +1,12 @@
 import os
 import re
+import time
 import typing
 
 from bs4 import BeautifulSoup
 from bs4 import element
 import requests
+from tqdm import tqdm
 
 
 class UsernameRepositoryError(ValueError):
@@ -59,11 +61,13 @@ class GitHub:
     __GITHUB_URL: str = "https://github.com"
     __STARGAZERS_URL_SUFFIX: str = "/stargazers"
     __PAGE_SUFFIX: str = "?page="
-    __MARK_END_OF_STARGAZERS: str = 'This repository has no more stargazers.'
+    __MARK_END_OF_STARGAZERS: str = "This repository has no more stargazers."
 
     __OK_STATUS_CODE: int = 200
     __TOO_MANY_REQUESTS_STATUS_CODE: int = 429
     __NOT_FOUND_STATUS_CODE: int = 404
+
+    _sleep: float = 2  # sleep time in seconds to avoid "too many requests error"
 
     def __init__(self, username_and_repository: str) -> None:
         self.__username, self.__repository = GitHub.__extract_user_and_repo(username_and_repository)
@@ -71,7 +75,16 @@ class GitHub:
         self.__stargazers_base_url: str = self.__repository_url + self.__STARGAZERS_URL_SUFFIX
 
     @classmethod
+    def __check_username_and_repository(cls, username_and_repository: str) -> str:
+        if username_and_repository.startswith("https://github.com/"):
+            return username_and_repository[19:]
+        elif username_and_repository.startswith("github.com/"):
+            return username_and_repository[11:]
+        return username_and_repository
+
+    @classmethod
     def __extract_user_and_repo(cls, username_and_repository: str) -> typing.Optional[typing.Tuple[str, str]]:
+        username_and_repository = cls.__check_username_and_repository(username_and_repository)
         components: typing.List[str] = username_and_repository.split("/")
         if len(components) != 2:
             raise UsernameRepositoryError()
@@ -85,7 +98,8 @@ class GitHub:
         return os.path.join(self.__GITHUB_URL, self.__username, self.__repository)
 
     def __get_soup(self, url: str) -> BeautifulSoup:
-        response: requests.Response = requests.get(url, headers={'Content-Type': 'text/html'})
+        time.sleep(self._sleep)  # to avoid __TOO_MANY_REQUESTS_STATUS_CODE
+        response: requests.Response = requests.get(url, headers={"Content-Type": "text/html"})
 
         status_code: int = response.status_code
         if status_code == self.__OK_STATUS_CODE:
@@ -98,7 +112,7 @@ class GitHub:
 
     def __extract_stargazers_from_url(self, url: str) -> typing.List[str]:
         soup: typing.Optional[BeautifulSoup] = self.__get_soup(url)
-        h3_components: element.ResultSet = soup.find_all('h3')
+        h3_components: element.ResultSet = soup.find_all("h3")
 
         def _check_hyperlink_component(component: element.Tag) -> None:
             """Check the BeautifulSoup `element.Tag` component that receives a hyperlink HTML tag.
@@ -114,12 +128,12 @@ class GitHub:
 
             If any of the above mentioned is missing or not in the expected form, an Exception is raised.
             """
-            hyperlink_component: typing.Optional[element.Tag] = component.find('a')
+            hyperlink_component: typing.Optional[element.Tag] = component.find("a")
             if not hyperlink_component:
                 raise MissingHyperlinkTagError()
-            if not hyperlink_component.get('href'):
+            if not hyperlink_component.get("href"):
                 raise MissingHrefAttributeError()
-            href_content: str = hyperlink_component['href']
+            href_content: str = hyperlink_component["href"]
             if not re.match(r"/.+$", href_content):
                 raise HrefContentError(href_content)
 
@@ -127,7 +141,7 @@ class GitHub:
             if component.get_text() == self.__MARK_END_OF_STARGAZERS:
                 return None
             _check_hyperlink_component(component)
-            return component.a['href'][1:]  # dropping the first '/' character
+            return component.a["href"][1:]  # dropping the first '/' character
 
         users: typing.List[str] = []
         for component in h3_components:
@@ -146,17 +160,18 @@ class GitHub:
 
         all_stargazers: typing.List[str] = []
         previous_stargazers: typing.List[str] = []
-        while True:
-            current_url: str = self.__get_url_page_template(page_number)
-            current_stargazers: typing.List[str] = self.__extract_stargazers_from_url(current_url)
-            if not current_stargazers:
-                break
-            if current_stargazers == previous_stargazers:
-                break
-            all_stargazers += current_stargazers
-            previous_stargazers = current_stargazers
-            page_number += 1
-
+        with tqdm(desc="Current number of stargazers is ", unit="ppl") as pbar:
+            while True:
+                current_url: str = self.__get_url_page_template(page_number)
+                current_stargazers: typing.List[str] = self.__extract_stargazers_from_url(current_url)
+                if not current_stargazers:
+                    break
+                if current_stargazers == previous_stargazers:
+                    break
+                pbar.update(len(current_stargazers))
+                all_stargazers += current_stargazers
+                previous_stargazers = current_stargazers
+                page_number += 1
         return sorted(all_stargazers)
 
     def is_stargazer(self, user: str) -> bool:
@@ -176,3 +191,12 @@ class GitHub:
             page_number += 1
 
         return False
+
+    @property
+    def sleep_time(self) -> float:
+        return self._sleep
+
+    @sleep_time.setter
+    def sleep_time(self, duration: float) -> None:
+        assert isinstance(duration, (float, int))
+        self._sleep = duration

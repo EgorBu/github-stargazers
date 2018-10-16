@@ -48,7 +48,7 @@ def wrong_arguments_message(halo_fail: str) -> str:
 
 def verify_invoke_from_clirunner(result: Result, expected_output: str) -> None:
     assert result.exit_code == 0
-    assert result.output == expected_output
+    assert expected_output in result.output
 
 
 @responses.activate

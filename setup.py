@@ -1,5 +1,4 @@
 # pylint: disable=no-name-in-module,import-error
-from os import path
 from setuptools import setup
 
 
@@ -18,7 +17,7 @@ def get_long_description():
 
 setup(
     name='github-stargazers',
-    #package_dir = {'': 'github-stargazers'},
+    # package_dir = {'': 'github-stargazers'},
     packages=['github_stargazers'],
     entry_points={
         'console_scripts': [
@@ -29,7 +28,8 @@ setup(
         'beautifulsoup4>=4.6.0',
         'halo>=0.0.7',
         'click>=6.7',
-        'requests>=2.18.4'
+        'requests>=2.18.4',
+        'tqdm>=4.19.6'
     ],
     version=get_version(),
     description='List stargazers and check if a user starred that repository',
